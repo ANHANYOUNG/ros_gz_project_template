@@ -1,0 +1,14 @@
+twist_mux:
+  ros__parameters:
+    use_stamped: false
+    topics:
+      teleop:
+        topic   : cmd_vel
+        timeout : 0.5
+        priority: 30
+      pure_pursuit:
+        topic   : cmd_vel_ppc
+        timeout : 0.5
+        priority: 20
+    output_topic: cmd_vel_out 
+

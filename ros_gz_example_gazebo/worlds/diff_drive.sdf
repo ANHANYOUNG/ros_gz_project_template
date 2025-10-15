@@ -60,6 +60,7 @@
             </plane>
           </geometry>
         </collision>
+        
         <visual name="visual">
           <geometry>
             <plane>
