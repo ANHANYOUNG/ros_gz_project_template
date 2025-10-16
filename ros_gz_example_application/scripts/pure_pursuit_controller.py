@@ -4,7 +4,8 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
 import numpy as np
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import Odometry, Path
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 import math
 from sensor_msgs.msg import Imu, NavSatFix
 import pyproj
@@ -16,47 +17,12 @@ from sensor_msgs.msg import MagneticField
 from geometry_msgs.msg import Vector3
 from rosgraph_msgs.msg import Clock
 from geometry_msgs.msg import PoseWithCovarianceStamped
+from std_msgs.msg import Bool
 
 class PurePursuitNode(Node):
     def __init__(self):
         super().__init__('pure_pursuit_node')
-        self.cmd_pub = self.create_publisher(Twist, '/cmd_vel_ppc', 1)
-
-        self.dt_gps = 0.1
-        self.gps_sub = self.create_subscription(NavSatFix, '/navsat', self.gps_callback, 1)
-        self.absxy_pub = self.create_publisher(PoseWithCovarianceStamped, '/abs_xy', 1)
-
-        self.dt_imu = 0.01
-        self.imu_sub = self.create_subscription(Imu, '/imu', self.imu_callback, 1)
-
-        self.mag_sub = self.create_subscription(MagneticField, '/magnetometer', self.mag_callback, 1)
-        self.clock_sub = self.create_subscription(Clock, '/clock', self.clock_callback, 1)
-
-        self.dt_timer = 0.1
-        self.timer = self.create_timer(self.dt_timer, self.timer_callback)
-
-        self.global_odom_sub = self.create_subscription(Odometry, '/odometry/global', self.global_odom_callback, 1)
-        self.local_odom_sub = self.create_subscription(Odometry, '/odometry/local', self.local_odom_callback, 1)
-
-        # 예시 경로점
-        self.waypoints = [(-9, 3.75), 
-                          (9, 3.75), 
-                          (9, 2.25), 
-                          (-9, 2.25), 
-                          (-9, 0.75), 
-                          (9, 0.75), 
-                          (9, -0.75), 
-                          (-9, -0.75), 
-                          (-9, -2.25),
-                          (9, -2.25),
-                          (9, -3.75),
-                          (-9, -3.75)
-                          ]
         
-        self.lookahead_distance = 1.0
-        self.lookahead_idx = 1
-        self.interpolated_waypoints = self.interpolate_waypoints(self.waypoints, self.lookahead_distance)
-
         self.current_x = None
         self.current_y = None
         self.current_yaw = None
@@ -96,6 +62,63 @@ class PurePursuitNode(Node):
 
         self.rotate_flag = 0
         self.state = "move"  # "move" 또는 "rotate"
+
+        self.ppc_enabled = False
+        self.ppc_enable_sub = self.create_subscription(Bool, '/ppc/enable', self.ppc_enable_callback, 10)
+        self.cmd_pub = self.create_publisher(Twist, '/cmd_vel_ppc', 1)
+
+        self.dt_gps = 0.1
+        self.gps_sub = self.create_subscription(NavSatFix, '/navsat', self.gps_callback, 1)
+        self.absxy_pub = self.create_publisher(PoseWithCovarianceStamped, '/abs_xy', 1)
+
+        self.dt_imu = 0.01
+        self.imu_sub = self.create_subscription(Imu, '/imu', self.imu_callback, 1)
+
+        self.mag_sub = self.create_subscription(MagneticField, '/magnetometer', self.mag_callback, 1)
+        self.clock_sub = self.create_subscription(Clock, '/clock', self.clock_callback, 1)
+
+        self.dt_timer = 0.1
+        self.timer = self.create_timer(self.dt_timer, self.timer_callback)
+
+        self.global_odom_sub = self.create_subscription(Odometry, '/odometry/global', self.global_odom_callback, 1)
+        self.local_odom_sub = self.create_subscription(Odometry, '/odometry/local', self.local_odom_callback, 1)
+
+##########################변경##############################
+        # 예시 경로점
+        self.waypoints = []
+        
+        self.lookahead_distance = 1.0
+        self.lookahead_idx = 1
+        self.interpolated_waypoints = []
+        self.have_path = False
+
+        # 라치(마지막 메시지를 새 구독자에게 즉시 전달) QoS
+        path_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1
+        )
+        self.path_sub = self.create_subscription(Path, '/ppc/path', self.path_callback, path_qos)
+
+    def path_callback(self, msg: Path):
+        # frame은 'map'을 기대
+        pts = []
+        for ps in msg.poses:
+            pts.append((ps.pose.position.x, ps.pose.position.y))
+        if len(pts) < 2:
+            self.get_logger().warn('Received /ppc/path but it has less than 2 points. Ignoring.')
+            return
+
+        self.waypoints = pts
+        self.interpolated_waypoints = self.interpolate_waypoints(self.waypoints, self.lookahead_distance)
+        self.lookahead_idx = 1
+        self.have_path = True
+        self.get_logger().info(f'Received path: {len(self.waypoints)} pts, interpolated: {len(self.interpolated_waypoints)} pts')
+##########################변경##############################
+
+
+
 
 
     def gps_callback(self, msg):
@@ -160,7 +183,9 @@ class PurePursuitNode(Node):
         #     f"Mag: x={self.mag_x:.3e}, y={self.mag_y:.3e}, z={self.mag_z:.3e}, yaw={math.degrees(self.mag_yaw):.1f}°"
         # )
         
-
+    def ppc_enable_callback(self, msg: Bool):
+        self.ppc_enabled = bool(msg.data)
+        self.get_logger().info(f'PPC {"ENABLED" if self.ppc_enabled else "DISABLED"}')
     def clock_callback(self, msg):
         self.current_time = msg.clock.sec + msg.clock.nanosec * 1e-9
 
@@ -229,6 +254,29 @@ class PurePursuitNode(Node):
 
     def timer_callback(self):
         twist = Twist()
+        # ppc 비활성화 시 정지
+        if not self.ppc_enabled:
+            twist.linear.x = 0.0
+            twist.linear.y = 0.0
+            twist.linear.z = 0.0
+            twist.angular.x = 0.0
+            twist.angular.y = 0.0
+            twist.angular.z = 0.0
+            self.cmd_pub.publish(twist)
+            return
+##########################변경##############################
+        # 경로 없으면 대기
+        if not self.have_path or not self.interpolated_waypoints:
+            twist.linear.x = 0.0
+            twist.linear.y = 0.0
+            twist.linear.z = 0.0
+            twist.angular.x = 0.0
+            twist.angular.y = 0.0
+            twist.angular.z = 0.0
+            self.cmd_pub.publish(twist)
+            return
+##########################변경##############################
+
         # GPS/IMU 기반 위치와 자세가 모두 들어온 경우에만 동작
         if self.global_x is not None and self.global_y is not None and self.global_yaw is not None:
             # x = self.global_x + self.local_x
@@ -320,13 +368,13 @@ class PurePursuitNode(Node):
                         twist.linear.x = 0.3
                         twist.angular.z = twist.linear.x * curvature
 
-                    self.get_logger().info(
-                        f"Current: x={x:.2f}, y={y:.2f}, yaw={math.degrees(yaw):.1f} deg | "
-                        f"Target: x={lookahead_point[0]:.2f}, y={lookahead_point[1]:.2f} | "
-                        f"Curvature: {curvature:.4f} | "
-                        f"Waypoint idx: {self.lookahead_idx}, dist: {min_dist:.4f} | "
-                        f"cnt: {(self.clock_cnt - self.imu_cnt):.4f}, {self.clock_cnt:.4f}/{self.imu_cnt:.4f} | "
-                    )
+                    # self.get_logger().info(
+                    #     f"Current: x={x:.2f}, y={y:.2f}, yaw={math.degrees(yaw):.1f} deg | "
+                    #     f"Target: x={lookahead_point[0]:.2f}, y={lookahead_point[1]:.2f} | "
+                    #     f"Curvature: {curvature:.4f} | "
+                    #     f"Waypoint idx: {self.lookahead_idx}, dist: {min_dist:.4f} | "
+                    #     f"cnt: {(self.clock_cnt - self.imu_cnt):.4f}, {self.clock_cnt:.4f}/{self.imu_cnt:.4f} | "
+                    # )
 
                 elif self.state == "rotate":
                     # 가장 가까운 waypoint(시작점 제외)를 찾음

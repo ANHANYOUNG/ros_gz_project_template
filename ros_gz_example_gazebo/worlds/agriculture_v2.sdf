@@ -1,0 +1,293 @@
+<?xml version="1.0" ?>
+<sdf version="1.9">
+  <world name="agriculture_v2">
+
+    <!-- ======================================================================= -->
+    <!--                            물리 엔진 설정                                 -->
+    <!-- ======================================================================= -->
+    <!-- 'ode' (Open Dynamics Engine) 물리 엔진에 대한 상세 설정을 정의합니다. -->
+    <physics name="1ms" type="ode">
+      <!-- 시뮬레이션의 한 스텝당 최대 시간. 0.001은 1ms로, 1000Hz의 주기로 물리 계산을 수행함을 의미합니다. -->
+      <!-- 값이 작을수록 계산이 정교해지지만 컴퓨터 자원을 더 많이 사용합니다. -->
+      <max_step_size>0.002</max_step_size>
+      <!-- 시뮬레이션 시간과 실제 시간의 비율. 1이면 실제 시간과 동일하게, 0.5면 절반 속도로 흐릅니다. -->
+      <real_time_factor>1</real_time_factor>
+
+      <ode>
+        <!-- ODE 엔진의 솔버(Solver) 설정을 정의합니다. 솔버는 충돌과 관절의 제약을 계산하는 방식입니다. -->
+        <solver>
+          <!-- 'world' 타입은 안정성을 우선으로 하는 솔버입니다. 'quick'보다 느리지만 더 안정적입니다. -->
+          <type>world</type>
+          <!-- 반복 계산 횟수. 값이 높을수록 관절이나 접촉의 안정성이 높아집니다. -->
+          <iters>100</iters>
+        </solver>
+
+        <!-- 제약(Constraints) 조건 설정 -->
+        <constraints>
+          <!-- 충돌하는 물체들이 서로 얼마나 파고들 수 있는지(m)를 결정합니다. 시뮬레이션 안정성에 영향을 줍니다. -->
+          <contact_surface_layer>0.001</contact_surface_layer>
+        </constraints>
+      </ode>
+    </physics>
+
+    <!-- ======================================================================= -->
+    <!--                                시스템 플러그인                              -->
+    <!-- ======================================================================= -->
+    <!-- Gazebo 시뮬레이션의 핵심 기능을 로드하는 시스템 플러그인들입니다. -->
+    <plugin
+      filename="gz-sim-physics-system"
+      name="gz::sim::systems::Physics"/>
+    <plugin
+      filename="gz-sim-user-commands-system"
+      name="gz::sim::systems::UserCommands"/>
+    <plugin
+      filename="gz-sim-scene-broadcaster-system"
+      name="gz::sim::systems::SceneBroadcaster"/>
+    <!-- 사용자 정의 플러그인들. 특정 기능을 추가하기 위해 직접 개발한 플러그인입니다. -->
+    <plugin
+      filename="BasicSystem"
+      name="ros_gz_example_gazebo::BasicSystem"/>
+    <plugin
+      filename="FullSystem"
+      name="ros_gz_example_gazebo::FullSystem"/>
+
+    <!-- ======================================================================= -->
+    <!--                            구면 좌표계 설정 (GPS용)                       -->
+    <!-- ======================================================================= -->
+    <!-- 이 월드의 GPS 기준점을 설정합니다. NavSat(GPS) 센서의 시뮬레이션에 필수적입니다. -->
+    <spherical_coordinates>
+      <surface_model>EARTH_WGS84</surface_model> <!-- 지구 타원체 모델 -->
+      <world_frame_orientation>ENU</world_frame_orientation> <!-- 좌표계 방향 (East-North-Up) -->
+      <latitude_deg>37.0</latitude_deg>     <!-- 기준점의 위도 -->
+      <longitude_deg>127.0</longitude_deg>   <!-- 기준점의 경도 -->
+      <elevation>0</elevation>             <!-- 기준점의 고도 -->
+      <heading_deg>0</heading_deg>         <!-- 월드의 북쪽 방향과 X축이 이루는 각도 -->
+    </spherical_coordinates>
+
+    <!-- ======================================================================= -->
+    <!--                                광원 설정                                  -->
+    <!-- ======================================================================= -->
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows> <!-- 그림자 생성 여부 -->
+      <pose>0 0 40 0 0 0</pose> <!-- 광원의 위치 -->
+      <diffuse>0.8 0.8 0.8 1</diffuse> <!-- 분산광 색상 -->
+      <specular>0.2 0.2 0.2 1</specular> <!-- 반사광 색상 -->
+      <attenuation> <!-- 빛의 감쇠 설정 -->
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>-0.5 0.1 -0.9</direction> <!-- 빛의 방향 벡터 -->
+    </light>
+
+    <!-- ======================================================================= -->
+    <!--                                지형 모델                                  -->
+    <!-- ======================================================================= -->
+    <!-- PNG 이미지 파일을 기반으로 높낮이가 있는 지형(Heightmap)을 생성합니다. -->
+    <model name="agricultural_terrain_1">
+      <static>true</static> <!-- 움직이지 않는 고정된 모델 -->
+      <pose>0 -7.5 0 0 0 0</pose> <!-- 월드 내 지형의 위치 -->
+      <link name="terrain_link">
+        <collision name="terrain_collision">
+          <geometry>
+            <heightmap>
+              <!-- 높낮이 정보가 담긴 흑백 이미지 파일 경로 -->
+              <uri>file://media/geometry/agricultural_terrain_v2.png</uri>
+              <!-- 생성될 지형의 실제 크기 (가로, 세로, 최대 높이) (m) -->
+              <size>25 10 0.2</size>
+              <!-- 지형의 중심 위치 (모델의 pose에 상대적) -->
+              <pos>0 -7.5 0</pos>
+            </heightmap>
+          </geometry>
+          <!-- 이 지형 표면과의 충돌 특성 설정 -->
+          <surface>
+            <contact>
+              <ode>
+                <soft_cfm>0.003226</soft_cfm>
+                <soft_erp>0.0323</soft_erp>
+                <kp>10000</kp>
+                <kd>300</kd>
+              </ode>
+            </contact>
+          </surface>
+        </collision>
+        
+        <visual name="terrain_visual">
+          <geometry>
+            <heightmap>
+              <use_terrain_paging>false</use_terrain_paging>
+              <!-- 지형에 입힐 텍스처(질감) 이미지 설정 -->
+              <texture>
+                <diffuse>file://media/materials/textures/soil_img.png</diffuse> <!-- 기본 색상 텍스처 -->
+                <normal>file://media/materials/textures/flat_normal.png</normal> <!-- 표면의 요철을 표현하는 노멀맵 -->
+                <size>10</size> <!-- 텍스처가 반복될 크기 (m) -->
+              </texture>
+              <uri>file://media/geometry/agricultural_terrain_v2.png</uri>
+              <size>25 10 0.2</size>
+              <pos>0 -7.5 0</pos>
+            </heightmap>
+          </geometry>
+        </visual> 
+      </link>
+    </model>
+
+    <model name="agricultural_terrain_2">
+      <static>true</static>
+      <pose>0 7.5 0 0 0 0</pose>
+      <link name="terrain_link">
+        <collision name="terrain_collision">
+          <geometry>
+            <heightmap>
+              <uri>file://media/geometry/agricultural_terrain_v2.png</uri>
+              <size>25 10 0.2</size>
+              <pos>0 7.5 0</pos>
+            </heightmap>
+          </geometry>
+          <surface>
+            <contact>
+              <ode>
+                <soft_cfm>0.003226</soft_cfm>
+                <soft_erp>0.0323</soft_erp>
+                <kp>10000</kp>
+                <kd>300</kd>
+              </ode>
+            </contact>
+          </surface>
+        </collision>
+        
+        <visual name="terrain_visual">
+          <geometry>
+            <heightmap>
+              <use_terrain_paging>false</use_terrain_paging>
+              <texture>
+                <diffuse>file://media/materials/textures/soil_img.png</diffuse>
+                <normal>file://media/materials/textures/flat_normal.png</normal>
+                <size>10</size>
+              </texture>
+              <uri>file://media/geometry/agricultural_terrain_v2.png</uri>
+              <size>25 10 0.2</size>
+              <pos>0 7.5 0</pos>
+            </heightmap>
+          </geometry>
+        </visual> 
+      </link>
+    </model>
+
+    <model name="agricultural_terrain_between">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="terrain_link">
+        <collision name="terrain_collision">
+          <geometry>
+            <heightmap>
+              <uri>file://media/geometry/agricultural_terrain_v2.png</uri>
+              <size>25 5 0.2</size>
+              <pos>0 0 0</pos>
+            </heightmap>
+          </geometry>
+          <surface>
+            <contact>
+              <ode>
+                <soft_cfm>0.003226</soft_cfm>
+                <soft_erp>0.0323</soft_erp>
+                <kp>10000</kp>
+                <kd>300</kd>
+              </ode>
+            </contact>
+          </surface>
+        </collision>
+        
+        <visual name="terrain_visual">
+          <geometry>
+            <heightmap>
+              <use_terrain_paging>false</use_terrain_paging>
+              <texture>
+                <diffuse>file://media/materials/textures/soil_img.png</diffuse>
+                <normal>file://media/materials/textures/flat_normal.png</normal>
+                <size>10</size>
+              </texture>
+              <uri>file://media/geometry/agricultural_terrain_v2.png</uri>
+              <size>25 5 0.2</size>
+              <pos>0 0 0</pos>
+            </heightmap>
+          </geometry>
+        </visual> 
+      </link>
+    </model>
+
+    <!-- ======================================================================= -->
+    <!--                             로봇 모델 포함                                -->
+    <!-- ======================================================================= -->
+    <!-- 이전에 정의한 tracked_v2.sdf 파일을 이 월드에 포함시킵니다. -->
+    <model name="tracked_v2">
+      <self_collide>true</self_collide> <!-- 모델 내부의 링크들끼리 충돌할지 여부 -->
+      <!-- 월드에 배치될 로봇의 초기 위치와 방향 -->
+      <pose>-11.25 11.25 0.05 0 0 0</pose>
+      
+      <!-- 다른 SDF 파일을 포함시키는 태그 -->
+      <include merge="true">
+        <!-- 포함할 파일의 경로. package:// 스키마를 사용하여 ROS2 패키지 내 파일을 쉽게 찾을 수 있습니다. -->
+        <uri>package://ros_gz_example_description/models/tracked_v2</uri>
+      </include>
+
+      <!-- 이 모델에만 적용되는 플러그인들 -->
+      <!-- 로봇의 모든 관절 상태(위치, 속도)를 /joint_states 토픽으로 발행하는 플러그인 -->
+      <plugin
+        filename="gz-sim-joint-state-publisher-system"
+        name="gz::sim::systems::JointStatePublisher">
+      </plugin>
+
+      <!-- 로봇의 링크들의 위치(Pose) 정보를 발행하는 플러그인 -->
+      <plugin
+        filename="gz-sim-pose-publisher-system"
+        name="gz::sim::systems::PosePublisher">
+        <publish_link_pose>true</publish_link_pose>
+        <use_pose_vector_msg>true</use_pose_vector_msg>
+        <static_publisher>true</static_publisher>
+        <static_update_frequency>1</static_update_frequency>
+      </plugin>
+
+      <plugin filename="gz-sim-diff-drive-system" name="gz::sim::systems::DiffDrive">
+        <left_joint>wheel_L1_joint</left_joint>
+        <right_joint>wheel_R1_joint</right_joint>
+        <left_joint>wheel_L2_joint</left_joint>
+        <right_joint>wheel_R2_joint</right_joint>
+        <left_joint>wheel_L3_joint</left_joint>
+        <right_joint>wheel_R3_joint</right_joint>
+        <left_joint>wheel_L4_joint</left_joint>
+        <right_joint>wheel_R4_joint</right_joint>
+        <left_joint>wheel_L5_joint</left_joint>
+        <right_joint>wheel_R5_joint</right_joint>
+        
+        <wheel_separation>0.57</wheel_separation>
+        <wheel_radius>0.10</wheel_radius>
+
+        <topic>/model/tracked_v2/cmd_vel_out</topic>
+
+        <max_linear_acceleration>1</max_linear_acceleration>
+        <min_linear_acceleration>-1</min_linear_acceleration>
+        <max_angular_acceleration>2</max_angular_acceleration>
+        <min_angular_acceleration>-2</min_angular_acceleration>
+        <max_linear_velocity>5</max_linear_velocity>
+        <min_linear_velocity>-5</min_linear_velocity>
+        <max_angular_velocity>50</max_angular_velocity>
+        <min_angular_velocity>-50</min_angular_velocity>
+        <min_wheel_torque>-40</min_wheel_torque>
+        <max_wheel_torque>40</max_wheel_torque>
+
+      </plugin>
+
+      <plugin filename="gz-sim-imu-system"
+              name="gz::sim::systems::Imu">
+      </plugin>
+
+      <plugin filename="gz-sim-navsat-system"
+        name="gz::sim::systems::NavSat" />
+
+      <plugin filename="gz-sim-magnetometer-system"
+        name="gz::sim::systems::Magnetometer"/>
+
+    </model>
+  </world>
+</sdf>
