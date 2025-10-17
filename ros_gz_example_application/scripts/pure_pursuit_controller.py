@@ -91,6 +91,7 @@ class PurePursuitNode(Node):
         self.lookahead_idx = 1
         self.interpolated_waypoints = []
         self.have_path = False
+        self.progress_idx = 1 # 1부터 시작 (0은 주행체 시작점) change 1
 
         # 라치(마지막 메시지를 새 구독자에게 즉시 전달) QoS
         path_qos = QoSProfile(
