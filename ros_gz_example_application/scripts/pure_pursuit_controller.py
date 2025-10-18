@@ -17,7 +17,7 @@ from sensor_msgs.msg import MagneticField
 from geometry_msgs.msg import Vector3
 from rosgraph_msgs.msg import Clock
 from geometry_msgs.msg import PoseWithCovarianceStamped
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 
 class PurePursuitNode(Node):
     def __init__(self):
@@ -65,7 +65,11 @@ class PurePursuitNode(Node):
 
         self.ppc_enabled = False
         self.ppc_enable_sub = self.create_subscription(Bool, '/ppc/enable', self.ppc_enable_callback, 10)
-        self.cmd_pub = self.create_publisher(Twist, '/cmd_vel_ppc', 1)
+        self.cmd_pub = self.create_publisher(Twist, '/cmd_vel_ppc', 5)
+
+        # 완료 메세지
+        self.state_pub = self.create_publisher(String, '/state_command', 10)
+        self.done_sent = False
 
         self.dt_gps = 0.1
         self.gps_sub = self.create_subscription(NavSatFix, '/navsat', self.gps_callback, 1)
@@ -91,7 +95,7 @@ class PurePursuitNode(Node):
         self.lookahead_idx = 1
         self.interpolated_waypoints = []
         self.have_path = False
-        self.progress_idx = 1 # 1부터 시작 (0은 주행체 시작점) change 1
+        self.progress_idx = 1 # 1부터 시작 (0은 주행체 시작점)
 
         # 라치(마지막 메시지를 새 구독자에게 즉시 전달) QoS
         path_qos = QoSProfile(
@@ -113,8 +117,11 @@ class PurePursuitNode(Node):
 
         self.waypoints = pts
         self.interpolated_waypoints = self.interpolate_waypoints(self.waypoints, self.lookahead_distance)
-        self.lookahead_idx = 1
+        # 목표 waypoint 유지하는 기능
+        max_idx = max(1, len(self.interpolated_waypoints) - 1)
+        self.lookahead_idx = min(self.lookahead_idx, max_idx)
         self.have_path = True
+        self.done_sent = False  # 새 경로 수신 시 완료 상태 초기화
         self.get_logger().info(f'Received path: {len(self.waypoints)} pts, interpolated: {len(self.interpolated_waypoints)} pts')
 ##########################변경##############################
 
@@ -318,6 +325,16 @@ class PurePursuitNode(Node):
             # lookahead_point 업데이트
             self.lookahead_idx = min_idx
             lookahead_point = self.interpolated_waypoints[self.lookahead_idx]
+
+            # 완료 메세지+waypoint 초기화
+            last_idx = len(self.interpolated_waypoints) - 1
+            if last_idx >= 0 and self.lookahead_idx >= last_idx and not self.done_sent:
+                self.state_pub.publish(String(data="DONE"))
+                self.done_sent = True
+                self.lookahead_idx = 1
+                self.rotate_flag = 0
+                self.state = "move"
+                self.get_logger().info("Reached final waypoint")
 
             # waypoints 중 하나와 lookahead_point의 거리가 0.01 이하이면 회전 플래그 on
             for wp in self.waypoints:
