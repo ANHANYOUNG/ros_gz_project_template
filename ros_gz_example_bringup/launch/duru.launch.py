@@ -3,10 +3,10 @@ import os
 from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, ExecuteProcess
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
-
+from launch.conditions import IfCondition
 from launch_ros.actions import Node
 
 
@@ -29,6 +29,14 @@ def generate_launch_description():
     # 2) SDF 로봇 기술서 로드 (robot_state_publisher 입력)
     with open(sdf_file, 'r') as infp:
         robot_desc = infp.read()
+
+    # 3) termianl 런치
+    with_terms_arg = DeclareLaunchArgument(
+        'with_terminals',
+        default_value='true',
+        description='open termianls for teleop and state command'
+    )
+    with_terms = LaunchConfiguration('with_terminals')
 
     # 3) Gazebo (Ignition/GZ) 실행
     gz_sim = IncludeLaunchDescription(
@@ -134,6 +142,46 @@ def generate_launch_description():
         parameters=[{'use_sim_time': True}],
     )
 
+    # 12) terminal 실행 (텔레옵 및 상태 명령용)
+        # 공통: 새 터미널에서 ROS 환경 다시 source
+    bash_setup = (
+        'bash -lc "'
+        'source /opt/ros/jazzy/setup.bash; '
+        'source install/setup.bash; '
+        # 여기에 실제 실행 커맨드가 이어 붙음
+    )
+
+    # ① 키보드 teleop
+    teleop_term = ExecuteProcess(
+        condition=IfCondition(with_terms),
+        cmd=[
+            'gnome-terminal', '--',
+            'bash', '-lc',
+            # q 키로 종료, 안내 문구도 나오게
+            'source /opt/ros/jazzy/setup.bash; '
+            'source install/setup.bash; '
+            'echo -e \'[teleop] w/s=전후, a/d=회전, q=종료\\n\'; '
+            'ros2 run teleop_twist_keyboard teleop_twist_keyboard'
+        ],
+        output='screen'
+    )
+
+    # ② 상태 커맨드 퍼블리셔
+    state_cmd_term = ExecuteProcess(
+        condition=IfCondition(with_terms),
+        cmd=[
+            'gnome-terminal', '--',
+            'bash', '-lc',
+            'source /opt/ros/jazzy/setup.bash; '
+            'source install/setup.bash; '
+            'echo -e \'[state] AUTO -> path_A/path_B -> AUTO_START -> E_STOP\\nexit 로 종료\\n\'; '
+            # entry point 이름이 'command' 라면 아래처럼, 파일명을 직접 실행하면 패키지 경로 따라 조정
+            'ros2 run ros_gz_example_application cmd_send.py'
+        ],
+        output='screen'
+    )
+
+
     # (옵션) 시각화/디버깅 노드
     # rviz = Node(
     #     package='rviz2',
@@ -144,6 +192,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         # Gazebo 시뮬레이터
+        with_terms_arg,
         gz_sim,
 
         # 브리지 / 상태 발행
@@ -163,6 +212,9 @@ def generate_launch_description():
         # 애플리케이션 노드
         state_machine_node,
         pure_pursuit_node,
+        teleop_term,
+        state_cmd_term,
+
 
         # RViz (원하면 주석 해제)
         # rviz,
